@@ -1,0 +1,168 @@
+/* glreview TUI スタイル */
+
+/* メインレイアウト */
+#main-container {
+    layout: horizontal;
+    height: 100%;
+}
+
+/* 左ペイン */
+MRListPanel {
+    width: 30%;
+    height: 100%;
+    border-right: tall $primary;
+}
+
+MRListPanel.-hidden {
+    display: none;
+}
+
+/* 右ペイン */
+ContentPanel {
+    width: 1fr;
+    height: 100%;
+}
+
+/* 差分表示の色 */
+.diff-add {
+    background: #1a3a1a;
+    color: #88cc88;
+}
+
+.diff-remove {
+    background: #3a1a1a;
+    color: #cc8888;
+}
+
+.diff-hunk {
+    color: #6688cc;
+    text-style: bold;
+}
+
+.diff-selected-line {
+    background: $accent;
+}
+
+/* インラインコメントマーカー */
+.comment-marker {
+    color: $warning;
+}
+
+/* CommentDialog */
+CommentDialog {
+    align: center middle;
+}
+
+#dialog-container {
+    width: 80%;
+    height: 60%;
+    background: $surface;
+    border: thick $primary;
+    padding: 1 2;
+}
+
+/* HelpScreen */
+HelpScreen {
+    align: center middle;
+}
+
+#help-container {
+    width: 70%;
+    height: 80%;
+    background: $surface;
+    border: thick $primary;
+    padding: 1 2;
+}
+
+/* ErrorDialog */
+ErrorDialog {
+    align: center middle;
+}
+
+#error-container {
+    width: 60%;
+    height: auto;
+    max-height: 50%;
+    background: $surface;
+    border: thick $error;
+    padding: 1 2;
+}
+
+/* 空コンテンツのヒント */
+#empty-hint {
+    content-align: center middle;
+    height: 100%;
+    color: $text-muted;
+}
+
+/* CommentViewDialog */
+CommentViewDialog {
+    align: center middle;
+}
+
+#comment-view-container {
+    width: 80%;
+    height: 70%;
+    background: $surface;
+    border: thick $primary;
+    padding: 1 2;
+}
+
+#comment-view-subtitle {
+    color: $text-muted;
+    margin-bottom: 1;
+}
+
+#comment-view-log {
+    height: 1fr;
+    border: solid $primary-darken-2;
+}
+
+/* Unified diff コンテナ */
+#unified-container {
+    height: 100%;
+}
+
+#diff-table {
+    width: 1fr;
+    height: 100%;
+}
+
+/* Side-by-side diff コンテナ */
+#sbs-container {
+    height: 100%;
+}
+
+#diff-table-left,
+#diff-table-right {
+    width: 1fr;
+    height: 100%;
+}
+
+/* SyntaxSelectDialog */
+SyntaxSelectDialog {
+    align: center middle;
+}
+
+#syntax-select-container {
+    width: 60%;
+    height: 70%;
+    background: $surface;
+    border: thick $primary;
+    padding: 1 2;
+}
+
+#syntax-select-subtitle {
+    color: $text-muted;
+    margin-bottom: 1;
+}
+
+#syntax-option-list {
+    height: 1fr;
+    border: solid $primary-darken-2;
+    margin-bottom: 1;
+}
+
+#syntax-select-hint {
+    color: $text-muted;
+}

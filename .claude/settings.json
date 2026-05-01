@@ -1,0 +1,14 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "prompt",
+            "prompt": "「uv run ruff format . 」、「uv run ruff check --fix」、「uv run pytest」を順に実行してください。エラーが発生している場合は修正してください。"
+          }
+        ]
+      }
+    ]
+  }
+}

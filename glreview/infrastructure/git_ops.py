@@ -80,6 +80,7 @@ def checkout_or_switch_branch(branch: str, remote: str, cwd: Path | None = None)
 
     if not branch_exists_locally:
         # ローカルに存在しない → チェックアウトして upstream を設定
+        _run_git(["fetch", remote, branch], cwd=cwd)
         _run_git(["checkout", "-b", branch, "--track", remote_ref], cwd=cwd)
         return CheckoutResult(
             branch=branch,

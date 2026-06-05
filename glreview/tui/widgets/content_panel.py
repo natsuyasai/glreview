@@ -825,31 +825,52 @@ class ContentPanel(Widget):
             prefix_char = text[0]
             code = text[1:]
 
-        if self._wrap_lines:
-            code_width = max(1, self._code_wrap_width - (1 if prefix_char else 0))
-            code = _wrap_text(code, code_width)
-            tokens: Any = _pygments_lex(code, self._syntax_lexer)
-        else:
-            tokens = (
-                precomputed_tokens
-                if precomputed_tokens is not None
-                else _pygments_lex(code, self._syntax_lexer)
-            )
+        tokens: Any = (
+            precomputed_tokens
+            if precomputed_tokens is not None
+            else _pygments_lex(code, self._syntax_lexer)
+        )
 
         result = Text(no_wrap=not self._wrap_lines)
         if prefix_char:
             result.append(prefix_char, style=bg_style)
-        for token_type, value in tokens:
-            if not value:
-                continue
-            fg = self._get_token_color(token_type)
-            if fg and bg_style:
-                style = f"{fg} {bg_style}"
-            elif fg:
-                style = fg
-            else:
-                style = bg_style or ""
-            result.append(value, style=style)
+
+        if self._wrap_lines:
+            # precomputed_tokens を再 lex せず使うことで多行ハイライトコンテキストを保持する。
+            # カラム位置を追跡して折り返し位置に \n を挿入する。
+            code_width = self._code_wrap_width
+            col = 1 if prefix_char else 0
+            for token_type, value in tokens:
+                if not value or value == "\n":
+                    continue
+                fg = self._get_token_color(token_type)
+                if fg and bg_style:
+                    style = f"{fg} {bg_style}"
+                elif fg:
+                    style = fg
+                else:
+                    style = bg_style or ""
+                while col + len(value) > code_width:
+                    space = code_width - col
+                    if space > 0:
+                        result.append(value[:space], style=style)
+                        value = value[space:]
+                    result.append("\n")
+                    col = 0
+                result.append(value, style=style)
+                col += len(value)
+        else:
+            for token_type, value in tokens:
+                if not value:
+                    continue
+                fg = self._get_token_color(token_type)
+                if fg and bg_style:
+                    style = f"{fg} {bg_style}"
+                elif fg:
+                    style = fg
+                else:
+                    style = bg_style or ""
+                result.append(value, style=style)
 
         return result
 

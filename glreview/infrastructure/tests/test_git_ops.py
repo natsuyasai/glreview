@@ -91,7 +91,9 @@ class TestCheckoutOrSwitchBranch:
 
     def test_checkout_new_branch(self) -> None:
         """ローカルに存在しないブランチをチェックアウトする。"""
-        responses = iter(["main\n", "", ""])  # current, local_list, checkout output
+        responses = iter(
+            ["main\n", "", "", ""]
+        )  # current, local_list, fetch output, checkout output
         with patch(
             "glreview.infrastructure.git_ops._run_git",
             side_effect=lambda *a, **kw: next(responses),

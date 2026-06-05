@@ -137,6 +137,8 @@ class ContentPanel(Widget):
         self._last_diff_new_line: int = 0
         # ジャンプ用: 各テーブル行の差分タイプ ("add"/"rem"/"ctx" 等)
         self._diff_row_types: list[str] = []
+        # 折り返しモード時のコンテンツ列テキスト幅（_render_diff で更新）
+        self._code_wrap_width: int = 40
 
     def compose(self) -> ComposeResult:
         yield Static("Select an MR from the list.", id="empty-hint")
@@ -724,6 +726,9 @@ class ContentPanel(Widget):
             table.add_column("Old", key="old_no", width=5)
             table.add_column("New", key="new_no", width=_LINE_NO_WIDTH)
             table.add_column("Content", key="content")
+            if self._wrap_lines:
+                # Old(5+2) + New(6+2) + Content padding(2) + scrollbar(1) = 18
+                self._code_wrap_width = max(40, table.size.width - 18)
             self._render_unified_table(table, rows, overflow_markers)
             self._update_gutter(rows, "diff-gutter")
         else:
@@ -735,6 +740,9 @@ class ContentPanel(Widget):
             left.add_column("Old", key="old_content")
             right.add_column("New#", key="new_no", width=_LINE_NO_WIDTH)
             right.add_column("New", key="new_content")
+            if self._wrap_lines:
+                # LineNo(6+2) + Content padding(2) + scrollbar(1) = 11
+                self._code_wrap_width = max(40, left.size.width - 11)
             self._render_sbs_tables(left, right, rows, overflow_markers)
             self._update_gutter(rows, "diff-gutter-sbs")
 
@@ -748,8 +756,7 @@ class ContentPanel(Widget):
     def _content_cell(self, text: str, style: str = "") -> Text:
         """折り返しモードに応じてコンテンツセル用 Text を返す。"""
         if self._wrap_lines:
-            wrap_width = max(40, self.size.width - 20)
-            text = _wrap_text(text, wrap_width)
+            text = _wrap_text(text, self._code_wrap_width)
             return Text(text, style=style)
         return Text(text, style=style, no_wrap=True)
 
@@ -818,15 +825,20 @@ class ContentPanel(Widget):
             prefix_char = text[0]
             code = text[1:]
 
+        if self._wrap_lines:
+            code_width = max(1, self._code_wrap_width - (1 if prefix_char else 0))
+            code = _wrap_text(code, code_width)
+            tokens: Any = _pygments_lex(code, self._syntax_lexer)
+        else:
+            tokens = (
+                precomputed_tokens
+                if precomputed_tokens is not None
+                else _pygments_lex(code, self._syntax_lexer)
+            )
+
         result = Text(no_wrap=not self._wrap_lines)
         if prefix_char:
             result.append(prefix_char, style=bg_style)
-
-        tokens: Any = (
-            precomputed_tokens
-            if precomputed_tokens is not None
-            else _pygments_lex(code, self._syntax_lexer)
-        )
         for token_type, value in tokens:
             if not value:
                 continue

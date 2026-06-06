@@ -24,6 +24,7 @@ from glreview.services.exceptions import GLReviewAPIError
 from glreview.tui.messages import CommentPosted, ShowDiff, ShowOverview
 from glreview.tui.screens.error_dialog import ErrorDialog
 from glreview.tui.screens.help_screen import HelpScreen
+from glreview.tui.screens.settings_screen import SettingsScreen
 from glreview.tui.widgets.content_panel import ContentPanel
 from glreview.tui.widgets.mr_list_panel import MRListPanel
 
@@ -34,7 +35,7 @@ _CSS_PATH = Path(__file__).parent / "styles.tcss"
 # ターミナルエミュレータの候補: (コマンド名, エディタコマンドの前に置く追加引数)
 # Windows 用候補（検出順）
 _TERMINAL_CANDIDATES_WIN: list[tuple[str, list[str]]] = [
-    ("wt", ["-w", "0", "new-tab", "--"]),  # Windows Terminal
+    ("wt", ["-w", "0", "new-tab", "--", "cmd", "/k"]),  # Windows Terminal
     ("pwsh", ["-NoExit", "-Command"]),  # PowerShell 7+
     ("powershell", ["-NoExit", "-Command"]),  # Windows PowerShell
 ]
@@ -113,6 +114,7 @@ class GLReviewApp(App):
         Binding("e", "open_in_editor", "Editor", priority=True),
         Binding("backslash", "toggle_sidebar", "Toggle Sidebar"),
         Binding("b", "checkout_branch", "Checkout Branch"),
+        Binding("comma", "show_settings", "Settings"),
     ]
 
     def __init__(
@@ -218,6 +220,31 @@ class GLReviewApp(App):
 
     async def action_show_help(self) -> None:
         await self.push_screen(HelpScreen())
+
+    async def action_show_settings(self) -> None:
+        """設定画面を開く。"""
+        if self._config_manager is None:
+            return
+
+        async def _open_config_in_editor(path: Path) -> None:
+            terminal_prefix = _resolve_terminal_cmd(self._config.terminal)
+            if terminal_prefix is None:
+                await self.push_screen(
+                    ErrorDialog(
+                        "ターミナルエミュレータが見つかりません。\n"
+                        "設定の terminal にコマンドを指定してください。"
+                    )
+                )
+                return
+            editor = self._config.editor or "vi"
+            try:
+                subprocess.Popen([*terminal_prefix, editor, str(path)])  # noqa: S603
+            except Exception as exc:
+                await self.push_screen(ErrorDialog(f"エディタ起動エラー: {exc}"))
+
+        await self.push_screen(
+            SettingsScreen(self._config, self._config_manager, _open_config_in_editor)
+        )
 
     async def action_refresh(self) -> None:
         if self._mr_service is None or self._comment_service is None:

@@ -166,3 +166,57 @@ SyntaxSelectDialog {
 #syntax-select-hint {
     color: $text-muted;
 }
+
+/* SettingsScreen */
+SettingsScreen {
+    align: center middle;
+}
+
+#settings-container {
+    width: 70%;
+    height: 80%;
+    background: $surface;
+    border: thick $primary;
+    padding: 1 2;
+}
+
+#settings-title {
+    margin-bottom: 0;
+}
+
+#settings-path {
+    color: $text-muted;
+    margin-bottom: 1;
+}
+
+#settings-form {
+    height: 1fr;
+    margin-bottom: 1;
+}
+
+.settings-section-header {
+    margin-top: 1;
+    color: $secondary;
+}
+
+.settings-row {
+    height: 3;
+}
+
+.settings-label {
+    width: 16;
+    height: 3;
+    content-align: left middle;
+}
+
+.settings-row Input {
+    width: 1fr;
+}
+
+.settings-row Switch {
+    margin-top: 1;
+}
+
+#settings-hint {
+    color: $text-muted;
+}

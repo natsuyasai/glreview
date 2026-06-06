@@ -175,7 +175,7 @@ class ConfigManager:
 
         return config
 
-    def save_setting(self, section: str, key: str, value: str) -> None:
+    def save_setting(self, section: str, key: str, value: str | bool) -> None:
         """設定ファイルの指定セクション・キーの値を更新して保存する。
 
         該当のキーが存在しない場合はセクション末尾に追加する。

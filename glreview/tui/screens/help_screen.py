@@ -14,6 +14,7 @@ _KEYBINDINGS: list[tuple[str, str, str]] = [
     # (category, key, action)
     ("Global", "q", "Quit"),
     ("Global", "?", "Toggle Help"),
+    ("Global", ",", "Settings"),
     ("Global", "r", "Refresh"),
     ("Global", "e", "Open in Editor"),
     ("Global", "[", "Toggle Sidebar"),

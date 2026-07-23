@@ -44,10 +44,13 @@ class CommentService:
         self._project: Any = None
         self._logger = get_logger(__name__)
         self._discussions_cache: LRUCache[int, list[Discussion]] = LRUCache(_CACHE_DISCUSSIONS_MAX)
+        self._current_username: str = ""
 
     async def load(self) -> None:
         """プロジェクト情報を非同期で初期化する。"""
         self._project = await self._client.get_project(self._project_path)
+        current_user = await self._client.get_current_user()
+        self._current_username = current_user.username
         self._logger.debug("CommentService loaded: project=%s", self._project_path)
 
     async def get_discussions(self, mr_iid: int) -> list[Discussion]:
@@ -90,7 +93,10 @@ class CommentService:
         line_type: str,
         old_line: int | None = None,
     ) -> Note:
-        """差分行へのインラインコメントを投稿する。
+        """差分行へのインラインコメントを下書きとしてレビューに追加する(Draft Notes API)。
+
+        ブラウザの「レビューを開始」「レビューに追加」と同様、この時点では公開されず、
+        publish_review() を呼び出すまで自分だけに見える下書きとして保持される。
 
         Args:
             mr_iid: MRのプロジェクト内番号。
@@ -107,7 +113,7 @@ class CommentService:
         """
         self._validate_body(body)
         self._logger.debug(
-            "Adding inline comment: iid=%s file=%s line=%s type=%s",
+            "Adding draft inline comment: iid=%s file=%s line=%s type=%s",
             mr_iid,
             file_path,
             line,
@@ -136,8 +142,8 @@ class CommentService:
                 position["old_line"] = line
             # line_code is generated server-side by GitLab; do not include it in the request.
 
-            discussion = await asyncio.to_thread(
-                mr.discussions.create, {"body": body, "position": position}
+            draft = await asyncio.to_thread(
+                mr.draft_notes.create, {"note": body, "position": position}
             )
         except gitlab.exceptions.GitlabGetError as exc:
             if exc.response_code == 404:
@@ -146,14 +152,10 @@ class CommentService:
         except Exception as exc:
             raise self._client._wrap_api_error(exc) from exc
 
-        self._discussions_cache.delete(mr_iid)
-        raw_notes = discussion.attributes.get("notes", [])
-        if raw_notes:
-            return self._convert_note(raw_notes[0])
-        raise GitLabConnectionError("コメント投稿後のレスポンスが不正です。")
+        return self._convert_draft_note(draft.attributes)
 
     async def add_note(self, mr_iid: int, body: str) -> Note:
-        """MR全体へのnoteを投稿する。
+        """MR全体への下書きコメントをレビューに追加する(Draft Notes API)。
 
         Raises:
             EmptyCommentError: コメント本文が空または空白のみの場合。
@@ -161,10 +163,10 @@ class CommentService:
             GitLabConnectionError: API通信エラー。
         """
         self._validate_body(body)
-        self._logger.debug("Adding note: iid=%s", mr_iid)
+        self._logger.debug("Adding draft note: iid=%s", mr_iid)
         try:
             mr = await asyncio.to_thread(self._project.mergerequests.get, mr_iid, lazy=True)
-            note = await asyncio.to_thread(mr.notes.create, {"body": body})
+            draft = await asyncio.to_thread(mr.draft_notes.create, {"note": body})
         except gitlab.exceptions.GitlabGetError as exc:
             if exc.response_code == 404:
                 raise MRNotFoundError(f"MR !{mr_iid} が見つかりません。") from exc
@@ -172,11 +174,10 @@ class CommentService:
         except Exception as exc:
             raise self._client._wrap_api_error(exc) from exc
 
-        self._discussions_cache.delete(mr_iid)
-        return self._convert_note(note.attributes)
+        return self._convert_draft_note(draft.attributes)
 
     async def reply_to_discussion(self, mr_iid: int, discussion_id: str, body: str) -> Note:
-        """既存ディスカッションへのリプライを投稿する。
+        """既存ディスカッションへの返信を下書きとしてレビューに追加する(Draft Notes API)。
 
         Raises:
             EmptyCommentError: コメント本文が空または空白のみの場合。
@@ -185,11 +186,15 @@ class CommentService:
             GitLabConnectionError: API通信エラー。
         """
         self._validate_body(body)
-        self._logger.debug("Replying to discussion: iid=%s discussion_id=%s", mr_iid, discussion_id)
+        self._logger.debug("Adding draft reply: iid=%s discussion_id=%s", mr_iid, discussion_id)
         try:
             mr = await asyncio.to_thread(self._project.mergerequests.get, mr_iid, lazy=True)
-            discussion = await asyncio.to_thread(mr.discussions.get, discussion_id)
-            note = await asyncio.to_thread(discussion.notes.create, {"body": body})
+            # 返信先ディスカッションの存在を検証する(取得できなければ404)
+            await asyncio.to_thread(mr.discussions.get, discussion_id)
+            draft = await asyncio.to_thread(
+                mr.draft_notes.create,
+                {"note": body, "in_reply_to_discussion_id": discussion_id},
+            )
         except gitlab.exceptions.GitlabGetError as exc:
             if exc.response_code == 404:
                 if "discussion" in str(exc).lower():
@@ -201,8 +206,50 @@ class CommentService:
         except Exception as exc:
             raise self._client._wrap_api_error(exc) from exc
 
+        return self._convert_draft_note(draft.attributes)
+
+    async def get_draft_notes(self, mr_iid: int) -> list[Note]:
+        """現在のレビューの下書きコメント一覧を取得する(自分の下書きのみ、Draft Notes API)。
+
+        Raises:
+            MRNotFoundError: 指定IIDのMRが存在しない場合。
+            GitLabConnectionError: API通信エラー。
+        """
+        self._logger.debug("Fetching draft notes: iid=%s", mr_iid)
+        try:
+            mr = await asyncio.to_thread(self._project.mergerequests.get, mr_iid, lazy=True)
+            raw_drafts = await asyncio.to_thread(mr.draft_notes.list, all=True)
+        except gitlab.exceptions.GitlabGetError as exc:
+            if exc.response_code == 404:
+                raise MRNotFoundError(f"MR !{mr_iid} が見つかりません。") from exc
+            raise GitLabConnectionError("GitLabサーバーとの通信中にエラーが発生しました。") from exc
+        except Exception as exc:
+            raise self._client._wrap_api_error(exc) from exc
+
+        return [self._convert_draft_note(d.attributes) for d in raw_drafts]
+
+    async def publish_review(self, mr_iid: int) -> None:
+        """下書きコメントを一括公開してレビューを送信する(Draft Notes bulk_publish)。
+
+        ブラウザの「Finish review」相当。公開後は各下書きが通常のディスカッション/
+        コメントとして他のメンバーに見えるようになる。
+
+        Raises:
+            MRNotFoundError: 指定IIDのMRが存在しない場合。
+            GitLabConnectionError: API通信エラー。
+        """
+        self._logger.debug("Publishing review: iid=%s", mr_iid)
+        try:
+            mr = await asyncio.to_thread(self._project.mergerequests.get, mr_iid, lazy=True)
+            await asyncio.to_thread(mr.draft_notes.bulk_publish)
+        except gitlab.exceptions.GitlabGetError as exc:
+            if exc.response_code == 404:
+                raise MRNotFoundError(f"MR !{mr_iid} が見つかりません。") from exc
+            raise GitLabConnectionError("GitLabサーバーとの通信中にエラーが発生しました。") from exc
+        except Exception as exc:
+            raise self._client._wrap_api_error(exc) from exc
+
         self._discussions_cache.delete(mr_iid)
-        return self._convert_note(note.attributes)
 
     def invalidate_cache(self, mr_iid: int | None = None) -> None:
         """ディスカッションキャッシュを無効化する。mr_iid=Noneで全クリア。"""
@@ -236,6 +283,22 @@ class CommentService:
             body=note_data.get("body", ""),
             created_at=note_data.get("created_at", ""),
             position=position,
+        )
+
+    def _convert_draft_note(self, data: dict[str, Any]) -> Note:
+        """下書きノートデータ辞書を内部 Note モデルに変換する(is_draft=True)。
+
+        Draft Notes API のレスポンスには author 情報が含まれないため、
+        接続時に取得した自分のユーザー名を author として設定する。
+        """
+        position = self._convert_position(data.get("position"))
+        return Note(
+            id=data.get("id", 0),
+            author=self._current_username,
+            body=data.get("note", ""),
+            created_at=data.get("created_at", ""),
+            position=position,
+            is_draft=True,
         )
 
     def _convert_position(self, position_data: dict[str, Any] | None) -> NotePosition | None:

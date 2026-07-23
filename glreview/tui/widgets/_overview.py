@@ -4,9 +4,18 @@ from __future__ import annotations
 
 import re
 
-from glreview.models import Discussion, MergeRequestDetail
+from glreview.models import Discussion, MergeRequestDetail, Note
 
 _IMAGE_PATTERN = re.compile(r"!\[([^\]]*)\]\(([^)]+)\)")
+
+
+def _drafts_as_discussions(drafts: list[Note]) -> list[Discussion]:
+    """下書きノートのリストを、表示用の疑似 Discussion のリストに変換する。
+
+    公開済みディスカッションと同じ描画経路(コメントマーカー・一覧表示)を
+    再利用するための変換。各下書きは 1件ずつ独立した Discussion として扱う。
+    """
+    return [Discussion(id=f"draft-{note.id}", notes=[note]) for note in drafts]
 
 
 def _extract_images(text: str) -> list[tuple[str, str]]:
@@ -51,7 +60,11 @@ def _build_overview_text(mr_detail: MergeRequestDetail, discussions: list[Discus
             lines.append(f"- [{label}]({url})")
         lines.append("")
 
-    lines.append(f"## Discussions ({len(discussions)})")
+    draft_count = sum(1 for disc in discussions for note in disc.notes if note.is_draft)
+    heading = f"## Discussions ({len(discussions)})"
+    if draft_count:
+        heading += f" — {draft_count} draft pending review"
+    lines.append(heading)
     for disc in discussions:
         for i, note in enumerate(disc.notes):
             prefix = "  " if i > 0 else ""
@@ -59,7 +72,8 @@ def _build_overview_text(mr_detail: MergeRequestDetail, discussions: list[Discus
             if note.position is not None:
                 line_no = note.position.new_line or note.position.old_line
                 pos_info = f" [{note.position.file_path}:{line_no}]"
-            lines.append(f"{prefix}**{note.author}**{pos_info} ({note.created_at})")
+            draft_tag = "[DRAFT] " if note.is_draft else ""
+            lines.append(f"{prefix}{draft_tag}**{note.author}**{pos_info} ({note.created_at})")
             for body_line in note.body.splitlines():
                 lines.append(f"{prefix}  {body_line}")
             lines.append("")

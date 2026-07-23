@@ -155,6 +155,7 @@ class Note:
     body: str
     created_at: str
     position: NotePosition | None = None
+    is_draft: bool = False
 
 
 @dataclass

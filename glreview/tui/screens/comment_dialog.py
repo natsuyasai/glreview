@@ -24,10 +24,15 @@ _logger = get_logger(__name__)
 
 
 class CommentDialog(ModalScreen[None]):
-    """コメント入力ダイアログ。INLINE / NOTE / REPLY の3種別に対応。"""
+    """コメント入力ダイアログ。INLINE / NOTE / REPLY の3種別に対応。
+
+    送信すると即座には公開されず、GitLabのDraft Notes APIで下書きとして
+    レビューに追加される(ブラウザの「レビューを開始」「レビューに追加」相当)。
+    実際に他のメンバーに見えるようにするには、レビュー送信操作で公開する必要がある。
+    """
 
     BINDINGS: ClassVar[list[Binding]] = [
-        Binding("ctrl+s", "submit", "Submit"),
+        Binding("ctrl+s", "submit", "Add to Review"),
         Binding("ctrl+e", "open_editor", "External Editor"),
         Binding("escape", "cancel", "Cancel"),
     ]
@@ -56,16 +61,19 @@ class CommentDialog(ModalScreen[None]):
             yield TextArea(id="comment-input")
             yield Label("", id="comment-error")
             with Horizontal(id="comment-buttons"):
-                yield Button("Submit (Ctrl+S)", variant="primary", id="submit-button")
+                yield Button("Add to Review (Ctrl+S)", variant="primary", id="submit-button")
                 yield Button("Cancel (Esc)", variant="default", id="cancel-button")
 
     def _build_header(self) -> tuple[str, str]:
         ctx = self._comment_context
         if ctx.comment_type == CommentType.INLINE:
-            return "[bold]Add Inline Comment[/bold]", f"{ctx.file_path} (line {ctx.line})"
+            return (
+                "[bold]Add Inline Comment to Review (Draft)[/bold]",
+                f"{ctx.file_path} (line {ctx.line})",
+            )
         if ctx.comment_type == CommentType.NOTE:
-            return "[bold]Add Note[/bold]", "MR-level comment"
-        return "[bold]Reply to Discussion[/bold]", ""
+            return "[bold]Add Note to Review (Draft)[/bold]", "MR-level comment"
+        return "[bold]Reply to Discussion (Draft)[/bold]", ""
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "submit-button":
@@ -104,7 +112,7 @@ class CommentDialog(ModalScreen[None]):
                     discussion_id=ctx.discussion_id,  # type: ignore[arg-type]
                     body=text,
                 )
-            _logger.info("Comment posted successfully for MR !%d", ctx.mr_iid)
+            _logger.info("Draft comment added to review for MR !%d", ctx.mr_iid)
             self.post_message(CommentPosted(ctx.mr_iid))
             self.dismiss()
         except EmptyCommentError:

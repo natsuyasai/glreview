@@ -41,6 +41,7 @@ def _make_services():
 
     comment_service = MagicMock()
     comment_service.get_discussions = AsyncMock(return_value=[])
+    comment_service.get_draft_notes = AsyncMock(return_value=[])
     comment_service.invalidate_cache = MagicMock()
     comment_service.load = AsyncMock()
 
@@ -430,6 +431,7 @@ def _make_services_with_mr():
     comment_service = MagicMock()
     comment_service.load = AsyncMock()
     comment_service.get_discussions = AsyncMock(return_value=[])
+    comment_service.get_draft_notes = AsyncMock(return_value=[])
     comment_service.invalidate_cache = MagicMock()
 
     return mr_service, comment_service

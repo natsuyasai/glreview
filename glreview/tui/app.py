@@ -21,7 +21,7 @@ from glreview.infrastructure.logger import get_logger
 from glreview.models import AppConfig
 from glreview.services import CommentService, GitLabClient, MRService
 from glreview.services.exceptions import GLReviewAPIError
-from glreview.tui.messages import CommentPosted, ShowDiff, ShowOverview
+from glreview.tui.messages import CommentPosted, ReviewSubmitted, ShowDiff, ShowOverview
 from glreview.tui.screens.error_dialog import ErrorDialog
 from glreview.tui.screens.help_screen import HelpScreen
 from glreview.tui.screens.settings_screen import SettingsScreen
@@ -346,6 +346,15 @@ class GLReviewApp(App):
         try:
             content_panel = self.query_one(ContentPanel)
             content_panel.on_comment_posted(message)
+        except Exception:  # noqa: S110
+            pass
+
+    def on_review_submitted(self, message: ReviewSubmitted) -> None:
+        """SubmitReviewDialog から上がってきた ReviewSubmitted を ContentPanel に転送する。"""
+        message.stop()
+        try:
+            content_panel = self.query_one(ContentPanel)
+            content_panel.on_review_submitted(message)
         except Exception:  # noqa: S110
             pass
 

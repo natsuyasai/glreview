@@ -23,7 +23,15 @@ class ShowDiff(Message):
 
 
 class CommentPosted(Message):
-    """コメント投稿完了メッセージ。CommentDialog → ContentPanel。"""
+    """下書きコメント追加完了メッセージ。CommentDialog → ContentPanel。"""
+
+    def __init__(self, mr_iid: int) -> None:
+        super().__init__()
+        self.mr_iid = mr_iid
+
+
+class ReviewSubmitted(Message):
+    """レビュー送信(下書き一括公開)完了メッセージ。SubmitReviewDialog → ContentPanel。"""
 
     def __init__(self, mr_iid: int) -> None:
         super().__init__()

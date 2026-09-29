@@ -19,7 +19,7 @@ from glreview.models import CommentContext, CommentType, Discussion
 from glreview.services import CommentService, MRService
 from glreview.services.exceptions import GLReviewAPIError
 from glreview.tui.entities import ContentViewState, DiffViewMode
-from glreview.tui.messages import CommentPosted, ShowDiff, ShowOverview
+from glreview.tui.messages import CommentPosted, ReviewSubmitted, ShowDiff, ShowOverview
 from glreview.tui.screens.comment_dialog import CommentDialog
 from glreview.tui.screens.comment_view_dialog import CommentViewDialog
 from glreview.tui.screens.error_dialog import ErrorDialog
@@ -29,6 +29,7 @@ from glreview.tui.screens.style_select_dialog import (
 from glreview.tui.screens.style_select_dialog import (
     StyleSelectDialog,
 )
+from glreview.tui.screens.submit_review_dialog import SubmitReviewDialog
 from glreview.tui.screens.syntax_select_dialog import (
     AUTO_OPTION_ID as _SYNTAX_AUTO,
 )
@@ -58,6 +59,7 @@ from glreview.tui.widgets._diff_renderer import (
 from glreview.tui.widgets._overview import (
     _build_comment_map,
     _build_overview_text,
+    _drafts_as_discussions,
     _get_comment_lines,
 )
 from glreview.tui.widgets._syntax import (
@@ -75,6 +77,7 @@ class ContentPanel(Widget):
     BINDINGS: ClassVar[list[Binding]] = [
         Binding("t", "toggle_diff_mode", "Toggle unified/side-by-side", priority=True),
         Binding("c", "add_comment", "Add Comment", priority=True),
+        Binding("R", "submit_review", "Submit Review", priority=True),
         Binding("w", "toggle_wrap", "Wrap", priority=True),
         Binding("s", "select_syntax", "Syntax", priority=True),
         Binding("p", "select_style", "Style", priority=True),
@@ -238,6 +241,15 @@ class ContentPanel(Widget):
             else:
                 self.run_worker(self._load_overview(message.mr_iid), exclusive=True)
 
+    def on_review_submitted(self, message: ReviewSubmitted) -> None:
+        if self._current_mr_iid == message.mr_iid:
+            if self._current_file_path:
+                self.run_worker(
+                    self._load_diff(message.mr_iid, self._current_file_path), exclusive=True
+                )
+            else:
+                self.run_worker(self._load_overview(message.mr_iid), exclusive=True)
+
     def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
         """選択行を更新し、SBS モードでは対向テーブルのカーソルを同期する。"""
         if self._view_state != ContentViewState.DIFF:
@@ -309,11 +321,13 @@ class ContentPanel(Widget):
         log = self.query_one(RichLog)
         log.clear()
         try:
-            mr_detail, discussions = await _gather_two(
+            mr_detail, discussions, drafts = await _gather_three(
                 self._mr_service.get_mr_detail(mr_iid),
                 self._comment_service.get_discussions(mr_iid),
+                self._comment_service.get_draft_notes(mr_iid),
             )
-            text = _build_overview_text(mr_detail, discussions)
+            all_discussions = discussions + _drafts_as_discussions(drafts)
+            text = _build_overview_text(mr_detail, all_discussions)
             log.clear()
             # scroll_end=False で末尾自動スクロールを抑制する。
             # write() は描画をリフレッシュまで遅延するため、先頭スクロールも
@@ -346,13 +360,15 @@ class ContentPanel(Widget):
         self._bottom_extra_count = 0
         self._syntax_lexer = _get_lexer_for_path(file_path)
         try:
-            file_diff, discussions = await _gather_two(
+            file_diff, discussions, drafts = await _gather_three(
                 self._mr_service.get_mr_diff(mr_iid, file_path),
                 self._comment_service.get_discussions(mr_iid),
+                self._comment_service.get_draft_notes(mr_iid),
             )
-            self._comment_lines = _get_comment_lines(discussions, file_path)
-            self._discussions = discussions
-            self._comment_map = _build_comment_map(discussions, file_path)
+            all_discussions = discussions + _drafts_as_discussions(drafts)
+            self._comment_lines = _get_comment_lines(all_discussions, file_path)
+            self._discussions = all_discussions
+            self._comment_map = _build_comment_map(all_discussions, file_path)
             self._current_diff_text = file_diff.diff
             self._full_parsed_diff = _parse_diff(file_diff.diff)
             self._first_diff_new_line, self._last_diff_new_line = _find_first_last_new_line(
@@ -1643,6 +1659,23 @@ class ContentPanel(Widget):
             CommentDialog(context, self._comment_service, self._editor_command)
         )
 
+    async def action_submit_review(self) -> None:
+        """現在のMRの下書きコメントを一括公開する(レビュー送信)。"""
+        if self._current_mr_iid is None:
+            return
+        mr_iid = self._current_mr_iid
+        try:
+            drafts = await self._comment_service.get_draft_notes(mr_iid)
+        except GLReviewAPIError as exc:
+            await self.app.push_screen(ErrorDialog(exc.message))
+            return
+
+        if not drafts:
+            self.app.notify("No draft comments to submit.")
+            return
+
+        await self.app.push_screen(SubmitReviewDialog(mr_iid, drafts, self._comment_service))
+
     async def clear_content(self) -> None:
         """コンテンツをクリアして初期状態に戻す。"""
         self._view_state = ContentViewState.EMPTY
@@ -1684,3 +1717,11 @@ async def _gather_two(coro1, coro2):
 
     result1, result2 = await asyncio.gather(coro1, coro2)
     return result1, result2
+
+
+async def _gather_three(coro1, coro2, coro3):
+    """3つのコルーチンを並行実行して結果のタプルを返す。"""
+    import asyncio
+
+    result1, result2, result3 = await asyncio.gather(coro1, coro2, coro3)
+    return result1, result2, result3

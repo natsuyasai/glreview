@@ -177,3 +177,71 @@ async def test_syntax_select_dialog_cancel() -> None:
         assert isinstance(test_app.screen, SyntaxSelectDialog)
         await pilot.press("escape")
         assert not isinstance(test_app.screen, SyntaxSelectDialog)
+
+
+@pytest.mark.asyncio
+async def test_submit_review_dialog_cancel() -> None:
+    """SubmitReviewDialog が Escape でキャンセルされ、publish_review が呼ばれないことを確認する。"""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from textual.app import App, ComposeResult
+    from textual.widgets import Label
+
+    from glreview.models import Note
+    from glreview.tui.screens.submit_review_dialog import SubmitReviewDialog
+
+    comment_service = MagicMock()
+    comment_service.publish_review = AsyncMock()
+    draft = Note(id=1, author="me", body="pending", created_at="", is_draft=True)
+
+    class _TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield Label("base")
+
+        async def on_mount(self) -> None:
+            await self.push_screen(SubmitReviewDialog(10, [draft], comment_service))
+
+    test_app = _TestApp()
+    async with test_app.run_test() as pilot:
+        assert isinstance(test_app.screen, SubmitReviewDialog)
+        await pilot.press("escape")
+        assert not isinstance(test_app.screen, SubmitReviewDialog)
+    comment_service.publish_review.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_submit_review_dialog_submit() -> None:
+    """SubmitReviewDialog の送信で publish_review が呼ばれ、ReviewSubmitted が送出されることを確認する。"""  # noqa: E501
+    from unittest.mock import AsyncMock, MagicMock
+
+    from textual.app import App, ComposeResult
+    from textual.widgets import Label
+
+    from glreview.models import Note
+    from glreview.tui.messages import ReviewSubmitted
+    from glreview.tui.screens.submit_review_dialog import SubmitReviewDialog
+
+    comment_service = MagicMock()
+    comment_service.publish_review = AsyncMock()
+    draft = Note(id=1, author="me", body="pending", created_at="", is_draft=True)
+    received: list[ReviewSubmitted] = []
+
+    class _TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield Label("base")
+
+        async def on_mount(self) -> None:
+            await self.push_screen(SubmitReviewDialog(10, [draft], comment_service))
+
+        def on_review_submitted(self, message: ReviewSubmitted) -> None:
+            received.append(message)
+
+    test_app = _TestApp()
+    async with test_app.run_test() as pilot:
+        assert isinstance(test_app.screen, SubmitReviewDialog)
+        await pilot.click("#submit-button")
+        await pilot.pause()
+        assert not isinstance(test_app.screen, SubmitReviewDialog)
+    comment_service.publish_review.assert_awaited_once_with(10)
+    assert len(received) == 1
+    assert received[0].mr_iid == 10

@@ -118,6 +118,25 @@ CommentViewDialog {
     border: solid $primary-darken-2;
 }
 
+/* SubmitReviewDialog */
+SubmitReviewDialog {
+    align: center middle;
+}
+
+#submit-review-container {
+    width: 80%;
+    height: 70%;
+    background: $surface;
+    border: thick $primary;
+    padding: 1 2;
+}
+
+#submit-review-log {
+    height: 1fr;
+    border: solid $primary-darken-2;
+    margin-bottom: 1;
+}
+
 /* Unified diff コンテナ */
 #unified-container {
     height: 100%;

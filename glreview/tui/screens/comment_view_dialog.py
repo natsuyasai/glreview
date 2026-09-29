@@ -44,7 +44,8 @@ class CommentViewDialog(ModalScreen[None]):
         for disc in self._discussions:
             for i, note in enumerate(disc.notes):
                 indent = "  " if i > 0 else ""
-                log.write(f"{indent}[bold]{note.author}[/bold] ({note.created_at})")
+                draft_tag = "[yellow][DRAFT][/yellow] " if note.is_draft else ""
+                log.write(f"{indent}{draft_tag}[bold]{note.author}[/bold] ({note.created_at})")
                 for body_line in note.body.splitlines():
                     log.write(f"{indent}  {body_line}")
             log.write("")

@@ -14,7 +14,7 @@ from glreview.services.exceptions import (
     GitLabConnectionError,
     MRNotFoundError,
 )
-from glreview.services.gitlab_client import GitLabClient
+from glreview.services.gitlab_client import CurrentUser, GitLabClient
 
 
 @pytest.fixture
@@ -27,6 +27,7 @@ def mock_client(config: AppConfig) -> MagicMock:
     client = MagicMock(spec=GitLabClient)
     client._config = config
     client.get_project = AsyncMock(return_value=MagicMock())
+    client.get_current_user = AsyncMock(return_value=CurrentUser(id=1, username="me"))
     client._wrap_api_error = MagicMock(side_effect=lambda e: e)
     return client
 
@@ -136,17 +137,15 @@ class TestAddNote:
         with pytest.raises(EmptyCommentError):
             await service.add_note(1, "")
 
-    async def test_add_note_success(self, service: CommentService) -> None:
-        mock_note = MagicMock()
-        mock_note.attributes = {
+    async def test_add_note_creates_draft(self, service: CommentService) -> None:
+        mock_draft = MagicMock()
+        mock_draft.attributes = {
             "id": 99,
-            "author": {"username": "me"},
-            "body": "my note",
-            "created_at": "2026-01-01T00:00:00Z",
+            "note": "my note",
             "position": None,
         }
         mock_mr = MagicMock()
-        mock_mr.notes.create = MagicMock(return_value=mock_note)
+        mock_mr.draft_notes.create = MagicMock(return_value=mock_draft)
 
         async def mock_to_thread(fn, *args, **kwargs):
             return fn(*args, **kwargs)
@@ -156,19 +155,16 @@ class TestAddNote:
             note = await service.add_note(1, "my note")
         assert note.id == 99
         assert note.author == "me"
+        assert note.is_draft is True
+        mock_mr.draft_notes.create.assert_called_once_with({"note": "my note"})
 
-    async def test_invalidates_cache_after_add(self, service: CommentService) -> None:
+    async def test_does_not_touch_discussions_cache(self, service: CommentService) -> None:
+        """下書き追加は公開済みディスカッションキャッシュに影響しないこと。"""
         service._discussions_cache.set(1, [])  # キャッシュに仕込む
-        mock_note = MagicMock()
-        mock_note.attributes = {
-            "id": 1,
-            "author": {"username": "me"},
-            "body": "x",
-            "created_at": "",
-            "position": None,
-        }
+        mock_draft = MagicMock()
+        mock_draft.attributes = {"id": 1, "note": "x", "position": None}
         mock_mr = MagicMock()
-        mock_mr.notes.create = MagicMock(return_value=mock_note)
+        mock_mr.draft_notes.create = MagicMock(return_value=mock_draft)
 
         async def mock_to_thread(fn, *args, **kwargs):
             return fn(*args, **kwargs)
@@ -176,7 +172,7 @@ class TestAddNote:
         service._project.mergerequests.get = MagicMock(return_value=mock_mr)
         with patch("asyncio.to_thread", side_effect=mock_to_thread):
             await service.add_note(1, "x")
-        assert service._discussions_cache.get(1) is None
+        assert service._discussions_cache.get(1) is not None
 
 
 class TestReplyToDiscussion:
@@ -184,19 +180,16 @@ class TestReplyToDiscussion:
         with pytest.raises(EmptyCommentError):
             await service.reply_to_discussion(1, "disc-id", "")
 
-    async def test_reply_success(self, service: CommentService) -> None:
-        mock_note = MagicMock()
-        mock_note.attributes = {
+    async def test_reply_creates_draft(self, service: CommentService) -> None:
+        mock_draft = MagicMock()
+        mock_draft.attributes = {
             "id": 55,
-            "author": {"username": "bob"},
-            "body": "reply text",
-            "created_at": "2026-01-02T00:00:00Z",
+            "note": "reply text",
             "position": None,
         }
-        mock_discussion = MagicMock()
-        mock_discussion.notes.create = MagicMock(return_value=mock_note)
         mock_mr = MagicMock()
-        mock_mr.discussions.get = MagicMock(return_value=mock_discussion)
+        mock_mr.discussions.get = MagicMock(return_value=MagicMock())
+        mock_mr.draft_notes.create = MagicMock(return_value=mock_draft)
 
         async def mock_to_thread(fn, *args, **kwargs):
             return fn(*args, **kwargs)
@@ -206,6 +199,10 @@ class TestReplyToDiscussion:
             note = await service.reply_to_discussion(1, "disc-abc", "reply text")
         assert note.id == 55
         assert note.body == "reply text"
+        assert note.is_draft is True
+        mock_mr.draft_notes.create.assert_called_once_with(
+            {"note": "reply text", "in_reply_to_discussion_id": "disc-abc"}
+        )
 
 
 class TestConvertPosition:
@@ -263,22 +260,16 @@ class TestAddInlineComment:
         with pytest.raises(EmptyCommentError):
             await service.add_inline_comment(1, "foo.py", 5, "", "new")
 
-    async def test_add_inline_comment_success(self, service: CommentService) -> None:
-        mock_discussion = MagicMock()
-        mock_discussion.attributes = {
-            "notes": [
-                {
-                    "id": 10,
-                    "author": {"username": "alice"},
-                    "body": "inline comment",
-                    "created_at": "2026-01-01T00:00:00Z",
-                    "position": {"new_path": "foo.py", "new_line": 5, "old_line": None},
-                }
-            ]
+    async def test_add_inline_comment_creates_draft(self, service: CommentService) -> None:
+        mock_draft = MagicMock()
+        mock_draft.attributes = {
+            "id": 10,
+            "note": "inline comment",
+            "position": {"new_path": "foo.py", "new_line": 5, "old_line": None},
         }
         mock_mr = MagicMock()
         mock_mr.diff_refs = {"base_sha": "aaa", "head_sha": "bbb", "start_sha": "ccc"}
-        mock_mr.discussions.create = MagicMock(return_value=mock_discussion)
+        mock_mr.draft_notes.create = MagicMock(return_value=mock_draft)
 
         async def mock_to_thread(fn, *args, **kwargs):
             return fn(*args, **kwargs)
@@ -287,24 +278,19 @@ class TestAddInlineComment:
         with patch("asyncio.to_thread", side_effect=mock_to_thread):
             note = await service.add_inline_comment(1, "foo.py", 5, "inline comment", "new")
         assert note.id == 10
-        assert note.author == "alice"
+        assert note.author == "me"
+        assert note.is_draft is True
 
     async def test_add_inline_comment_old_line(self, service: CommentService) -> None:
-        mock_discussion = MagicMock()
-        mock_discussion.attributes = {
-            "notes": [
-                {
-                    "id": 11,
-                    "author": {"username": "bob"},
-                    "body": "old line comment",
-                    "created_at": "2026-01-01T00:00:00Z",
-                    "position": {"new_path": "bar.py", "new_line": None, "old_line": 3},
-                }
-            ]
+        mock_draft = MagicMock()
+        mock_draft.attributes = {
+            "id": 11,
+            "note": "old line comment",
+            "position": {"new_path": "bar.py", "new_line": None, "old_line": 3},
         }
         mock_mr = MagicMock()
         mock_mr.diff_refs = {"base_sha": "a", "head_sha": "b", "start_sha": "c"}
-        mock_mr.discussions.create = MagicMock(return_value=mock_discussion)
+        mock_mr.draft_notes.create = MagicMock(return_value=mock_draft)
 
         async def mock_to_thread(fn, *args, **kwargs):
             return fn(*args, **kwargs)
@@ -313,6 +299,7 @@ class TestAddInlineComment:
         with patch("asyncio.to_thread", side_effect=mock_to_thread):
             note = await service.add_inline_comment(1, "bar.py", 3, "old line comment", "old")
         assert note.id == 11
+        assert note.is_draft is True
 
     async def test_404_raises_mr_not_found(self, service: CommentService) -> None:
         exc = gitlab.exceptions.GitlabGetError(response_code=404, error_message="Not Found")
@@ -332,21 +319,15 @@ class TestAddInlineComment:
         - line_code はクライアントから送らない（GitLab がサーバー側で生成する）
         ref: https://docs.gitlab.com/api/discussions/
         """
-        mock_discussion = MagicMock()
-        mock_discussion.attributes = {
-            "notes": [
-                {
-                    "id": 10,
-                    "author": {"username": "alice"},
-                    "body": "comment",
-                    "created_at": "2026-01-01T00:00:00Z",
-                    "position": {"new_path": "foo.py", "new_line": 5, "old_line": None},
-                }
-            ]
+        mock_draft = MagicMock()
+        mock_draft.attributes = {
+            "id": 10,
+            "note": "comment",
+            "position": {"new_path": "foo.py", "new_line": 5, "old_line": None},
         }
         mock_mr = MagicMock()
         mock_mr.diff_refs = {"base_sha": "aaa", "head_sha": "bbb", "start_sha": "ccc"}
-        mock_mr.discussions.create = MagicMock(return_value=mock_discussion)
+        mock_mr.draft_notes.create = MagicMock(return_value=mock_draft)
 
         async def mock_to_thread(fn, *args, **kwargs):
             return fn(*args, **kwargs)
@@ -355,7 +336,7 @@ class TestAddInlineComment:
         with patch("asyncio.to_thread", side_effect=mock_to_thread):
             await service.add_inline_comment(1, "foo.py", 5, "comment", "new")
 
-        call_args = mock_mr.discussions.create.call_args[0][0]
+        call_args = mock_mr.draft_notes.create.call_args[0][0]
         position = call_args["position"]
         assert position["new_line"] == 5
         assert "old_line" not in position
@@ -369,21 +350,15 @@ class TestAddInlineComment:
         - line_code はクライアントから送らない（GitLab がサーバー側で生成する）
         ref: https://docs.gitlab.com/api/discussions/
         """
-        mock_discussion = MagicMock()
-        mock_discussion.attributes = {
-            "notes": [
-                {
-                    "id": 11,
-                    "author": {"username": "bob"},
-                    "body": "comment",
-                    "created_at": "2026-01-01T00:00:00Z",
-                    "position": {"new_path": "bar.py", "new_line": None, "old_line": 3},
-                }
-            ]
+        mock_draft = MagicMock()
+        mock_draft.attributes = {
+            "id": 11,
+            "note": "comment",
+            "position": {"new_path": "bar.py", "new_line": None, "old_line": 3},
         }
         mock_mr = MagicMock()
         mock_mr.diff_refs = {"base_sha": "a", "head_sha": "b", "start_sha": "c"}
-        mock_mr.discussions.create = MagicMock(return_value=mock_discussion)
+        mock_mr.draft_notes.create = MagicMock(return_value=mock_draft)
 
         async def mock_to_thread(fn, *args, **kwargs):
             return fn(*args, **kwargs)
@@ -392,7 +367,7 @@ class TestAddInlineComment:
         with patch("asyncio.to_thread", side_effect=mock_to_thread):
             await service.add_inline_comment(1, "bar.py", 3, "comment", "old")
 
-        call_args = mock_mr.discussions.create.call_args[0][0]
+        call_args = mock_mr.draft_notes.create.call_args[0][0]
         position = call_args["position"]
         assert position["old_line"] == 3
         assert "new_line" not in position
@@ -406,21 +381,15 @@ class TestAddInlineComment:
         - line_code はクライアントから送らない（GitLab がサーバー側で生成する）
         ref: https://docs.gitlab.com/api/discussions/
         """
-        mock_discussion = MagicMock()
-        mock_discussion.attributes = {
-            "notes": [
-                {
-                    "id": 12,
-                    "author": {"username": "carol"},
-                    "body": "comment",
-                    "created_at": "2026-01-01T00:00:00Z",
-                    "position": {"new_path": "baz.py", "new_line": 10, "old_line": 8},
-                }
-            ]
+        mock_draft = MagicMock()
+        mock_draft.attributes = {
+            "id": 12,
+            "note": "comment",
+            "position": {"new_path": "baz.py", "new_line": 10, "old_line": 8},
         }
         mock_mr = MagicMock()
         mock_mr.diff_refs = {"base_sha": "x", "head_sha": "y", "start_sha": "z"}
-        mock_mr.discussions.create = MagicMock(return_value=mock_discussion)
+        mock_mr.draft_notes.create = MagicMock(return_value=mock_draft)
 
         async def mock_to_thread(fn, *args, **kwargs):
             return fn(*args, **kwargs)
@@ -429,7 +398,7 @@ class TestAddInlineComment:
         with patch("asyncio.to_thread", side_effect=mock_to_thread):
             await service.add_inline_comment(1, "baz.py", 10, "comment", "new", old_line=8)
 
-        call_args = mock_mr.discussions.create.call_args[0][0]
+        call_args = mock_mr.draft_notes.create.call_args[0][0]
         position = call_args["position"]
         assert position["new_line"] == 10
         assert position["old_line"] == 8
@@ -532,3 +501,79 @@ class TestConvertDiscussion:
         assert result is not None
         assert len(result.notes) == 1
         assert result.notes[0].author == "user"
+
+
+class TestConvertDraftNote:
+    def test_converts_with_current_username(self, service: CommentService) -> None:
+        note = service._convert_draft_note({"id": 42, "note": "todo", "position": None})
+        assert note.id == 42
+        assert note.author == "me"
+        assert note.body == "todo"
+        assert note.is_draft is True
+
+    def test_converts_position(self, service: CommentService) -> None:
+        note = service._convert_draft_note(
+            {
+                "id": 1,
+                "note": "x",
+                "position": {"new_path": "foo.py", "new_line": 5, "old_line": None},
+            }
+        )
+        assert note.position is not None
+        assert note.position.file_path == "foo.py"
+        assert note.position.new_line == 5
+
+
+class TestGetDraftNotes:
+    async def test_returns_draft_notes(self, service: CommentService) -> None:
+        raw = MagicMock()
+        raw.attributes = {"id": 7, "note": "pending", "position": None}
+        mock_mr = MagicMock()
+        mock_mr.draft_notes.list = MagicMock(return_value=[raw])
+
+        async def mock_to_thread(fn, *args, **kwargs):
+            return fn(*args, **kwargs)
+
+        service._project.mergerequests.get = MagicMock(return_value=mock_mr)
+        with patch("asyncio.to_thread", side_effect=mock_to_thread):
+            result = await service.get_draft_notes(1)
+        assert len(result) == 1
+        assert result[0].id == 7
+        assert result[0].is_draft is True
+
+    async def test_404_raises_mr_not_found(self, service: CommentService) -> None:
+        exc = gitlab.exceptions.GitlabGetError(response_code=404, error_message="Not Found")
+
+        async def mock_to_thread(fn, *args, **kwargs):
+            raise exc
+
+        with patch("asyncio.to_thread", side_effect=mock_to_thread):
+            with pytest.raises(MRNotFoundError):
+                await service.get_draft_notes(999)
+
+
+class TestPublishReview:
+    async def test_bulk_publishes_and_invalidates_cache(self, service: CommentService) -> None:
+        service._discussions_cache.set(1, [])
+        mock_mr = MagicMock()
+        mock_mr.draft_notes.bulk_publish = MagicMock()
+
+        async def mock_to_thread(fn, *args, **kwargs):
+            return fn(*args, **kwargs)
+
+        service._project.mergerequests.get = MagicMock(return_value=mock_mr)
+        with patch("asyncio.to_thread", side_effect=mock_to_thread):
+            await service.publish_review(1)
+
+        mock_mr.draft_notes.bulk_publish.assert_called_once()
+        assert service._discussions_cache.get(1) is None
+
+    async def test_404_raises_mr_not_found(self, service: CommentService) -> None:
+        exc = gitlab.exceptions.GitlabGetError(response_code=404, error_message="Not Found")
+
+        async def mock_to_thread(fn, *args, **kwargs):
+            raise exc
+
+        with patch("asyncio.to_thread", side_effect=mock_to_thread):
+            with pytest.raises(MRNotFoundError):
+                await service.publish_review(999)

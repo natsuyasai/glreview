@@ -146,6 +146,7 @@ async def test_content_panel_show_overview_with_mocked_services() -> None:
     mock_mr_service.get_mr_detail = AsyncMock(return_value=mr_detail)
     mock_comment_service = MagicMock()
     mock_comment_service.get_discussions = AsyncMock(return_value=[])
+    mock_comment_service.get_draft_notes = AsyncMock(return_value=[])
 
     class _TestApp(App):
         def compose(self) -> ComposeResult:
@@ -202,6 +203,7 @@ async def test_content_panel_query_methods_when_diff_loaded() -> None:
     mock_mr_service.get_mr_diff = AsyncMock(return_value=file_diff)
     mock_comment_service = MagicMock()
     mock_comment_service.get_discussions = AsyncMock(return_value=[])
+    mock_comment_service.get_draft_notes = AsyncMock(return_value=[])
 
     class _TestApp(App):
         def compose(self) -> ComposeResult:
@@ -239,6 +241,7 @@ async def test_content_panel_toggle_wrap_when_diff_loaded() -> None:
     mock_mr_service.get_mr_diff = AsyncMock(return_value=file_diff)
     mock_comment_service = MagicMock()
     mock_comment_service.get_discussions = AsyncMock(return_value=[])
+    mock_comment_service.get_draft_notes = AsyncMock(return_value=[])
 
     class _TestApp(App):
         def compose(self) -> ComposeResult:
@@ -277,6 +280,7 @@ async def test_content_panel_toggle_diff_mode_when_diff_loaded() -> None:
     mock_mr_service.get_mr_diff = AsyncMock(return_value=file_diff)
     mock_comment_service = MagicMock()
     mock_comment_service.get_discussions = AsyncMock(return_value=[])
+    mock_comment_service.get_draft_notes = AsyncMock(return_value=[])
 
     class _TestApp(App):
         def compose(self) -> ComposeResult:
@@ -316,6 +320,7 @@ async def test_content_panel_select_syntax_dialog_opens_when_diff() -> None:
     mock_mr_service.get_mr_diff = AsyncMock(return_value=file_diff)
     mock_comment_service = MagicMock()
     mock_comment_service.get_discussions = AsyncMock(return_value=[])
+    mock_comment_service.get_draft_notes = AsyncMock(return_value=[])
 
     class _TestApp(App):
         def compose(self) -> ComposeResult:
@@ -353,6 +358,7 @@ async def test_content_panel_select_style_dialog_opens_when_diff() -> None:
     mock_mr_service.get_mr_diff = AsyncMock(return_value=file_diff)
     mock_comment_service = MagicMock()
     mock_comment_service.get_discussions = AsyncMock(return_value=[])
+    mock_comment_service.get_draft_notes = AsyncMock(return_value=[])
 
     class _TestApp(App):
         def compose(self) -> ComposeResult:
@@ -389,6 +395,7 @@ async def test_content_panel_show_diff_with_mocked_services() -> None:
     mock_mr_service.get_mr_diff = AsyncMock(return_value=file_diff)
     mock_comment_service = MagicMock()
     mock_comment_service.get_discussions = AsyncMock(return_value=[])
+    mock_comment_service.get_draft_notes = AsyncMock(return_value=[])
 
     class _TestApp(App):
         def compose(self) -> ComposeResult:
